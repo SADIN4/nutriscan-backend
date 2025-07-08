@@ -14,7 +14,7 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 // Fonction de génération d'image DALL·E 3
 async function generateImageWithDalle({ recipeTitle, description, ingredients }) {
   try {
-    console.log('🎨 Génération DALL·E 3 pour:', recipeTitle);
+    console.log('🎨 Préparation image pour:', recipeTitle);
 
     // Construire le prompt optimisé
     let prompt = `Professional food photography of ${recipeTitle}`;
@@ -59,14 +59,14 @@ async function generateImageWithDalle({ recipeTitle, description, ingredients })
       throw new Error('Aucune image générée par DALL·E');
     }
 
-    console.log('✅ Image DALL·E générée avec succès');
+    console.log('✅ Image préparée avec succès');
     return {
       imageUrl: data.data[0].url,
       success: true
     };
 
   } catch (error) {
-    console.error('❌ Erreur génération DALL·E:', error);
+    console.error('❌ Erreur préparation image:', error);
     
     return {
       imageUrl: '',
@@ -97,7 +97,7 @@ async function handleGenerateRecipes(req, res) {
       return res.status(503).json({ error: 'Clé API OpenAI manquante' });
     }
 
-    console.log("🚀 Génération optimisée de recette avec DALL·E 3...");
+    console.log("🍳 Préparation de votre recette personnalisée...");
     const startTime = Date.now();
 
     let promptText = `Analysez cette image et créez UNE recette ${regenerate ? 'DIFFÉRENTE et CRÉATIVE' : 'parfaite'} en utilisant UNIQUEMENT les ingrédients visibles.
@@ -179,35 +179,35 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
       });
     } catch (networkError) {
       console.error('Network error calling OpenAI API:', networkError);
-      return res.status(503).json({ error: 'Impossible de se connecter au service de génération de recettes. Vérifiez votre connexion internet et réessayez.' });
+      return res.status(503).json({ error: 'Impossible de se connecter au service. Vérifiez votre connexion internet et réessayez.' });
     }
 
-    console.log("📡 Requête OpenAI envoyée - optimisée pour la vitesse");
+    console.log("📡 Analyse nutritionnelle en cours...");
 
     if (!response.ok) {
-      let errorMessage = 'Échec de la génération de recette';
+      let errorMessage = 'Échec de la préparation de recette';
       let errorDetails = '';
       
       try {
         const errorData = await response.json();
         if (errorData.error) {
           errorMessage = errorData.error.message || errorData.error;
-          errorDetails = `Erreur API OpenAI (${response.status}): ${errorMessage}`;
+          errorDetails = `Erreur service (${response.status}): ${errorMessage}`;
           
           if (response.status === 401) {
-            errorDetails = 'Clé API OpenAI invalide. Veuillez vérifier votre configuration de clé API.';
+            errorDetails = 'Service temporairement indisponible. Veuillez réessayer.';
           } else if (response.status === 429) {
-            errorDetails = 'Limite de taux API OpenAI dépassée. Veuillez réessayer dans quelques minutes.';
+            errorDetails = 'Service surchargé. Veuillez réessayer dans quelques minutes.';
           } else if (response.status === 400) {
-            errorDetails = `Erreur de requête API OpenAI: ${errorMessage}`;
+            errorDetails = `Erreur de traitement: ${errorMessage}`;
           }
         }
       } catch (parseError) {
         const errorText = await response.text();
-        errorDetails = `Erreur API OpenAI (${response.status}): ${errorText}`;
+        errorDetails = `Erreur service (${response.status}): ${errorText}`;
       }
       
-      console.error('Erreur API OpenAI:', errorDetails);
+      console.error('Erreur service:', errorDetails);
       return res.status(response.status).json({ error: errorDetails });
     }
 
@@ -216,15 +216,15 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
       data = await response.json();
     } catch (jsonError) {
       const rawResponse = await response.text();
-      console.error('Échec de l\'analyse de la réponse OpenAI en JSON:', jsonError);
-      console.error('Réponse brute d\'OpenAI:', rawResponse);
-      return res.status(500).json({ error: 'L\'API OpenAI a retourné un format de réponse invalide. Veuillez réessayer.' });
+      console.error('Échec de l\'analyse de la réponse:', jsonError);
+      console.error('Réponse brute:', rawResponse);
+      return res.status(500).json({ error: 'Erreur de traitement des données. Veuillez réessayer.' });
     }
 
     const content = data.choices[0]?.message?.content;
 
     if (!content) {
-      return res.status(500).json({ error: 'L\'API OpenAI n\'a retourné aucun contenu. Veuillez réessayer.' });
+      return res.status(500).json({ error: 'Aucune recette générée. Veuillez réessayer.' });
     }
 
     // Parse the OpenAI response
@@ -237,15 +237,15 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
         parsedResponse = JSON.parse(content);
       }
     } catch (parseError) {
-      console.error('Échec de l\'analyse de la réponse OpenAI:', parseError);
-      console.error('Contenu OpenAI:', content);
-      return res.status(500).json({ error: 'Échec de l\'analyse des données de recette de la réponse OpenAI. L\'IA peut avoir retourné du JSON invalide.' });
+      console.error('Échec de l\'analyse de la réponse:', parseError);
+      console.error('Contenu:', content);
+      return res.status(500).json({ error: 'Erreur de traitement des données de recette. Veuillez réessayer.' });
     }
 
     // Validate response structure
     if (!parsedResponse.identifiedIngredients || !parsedResponse.recipe) {
       console.error('Structure de réponse invalide:', parsedResponse);
-      return res.status(500).json({ error: 'OpenAI a retourné une structure de réponse invalide. Données d\'ingrédients ou de recette manquantes.' });
+      return res.status(500).json({ error: 'Données de recette incomplètes. Veuillez réessayer.' });
     }
 
     // Validate and add default calories if missing
@@ -276,12 +276,12 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
       parsedResponse.recipe.calories = estimatedCalories;
     }
 
-    console.log("✅ Recette générée avec succès:", parsedResponse.recipe.title);
+    console.log("✅ Recette préparée avec succès:", parsedResponse.recipe.title);
     console.log("🥕 Ingrédients identifiés:", parsedResponse.identifiedIngredients);
     console.log("🔥 Calories de la recette:", parsedResponse.recipe.calories);
 
-    // 🎨 NOUVELLE PARTIE: Génération d'image DALL·E 3
-    console.log("🎨 Génération de l'image DALL·E 3 pour la recette...");
+    // 🎨 IMAGE PREPARATION - Start immediately after recipe is ready
+    console.log("🎨 Préparation de l'image de la recette...");
     
     const recipeId = `recipe_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
@@ -295,9 +295,9 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
     const finalImageUrl = dalleResult.imageUrl;
     
     if (dalleResult.success) {
-      console.log("✅ Image DALL·E 3 générée avec succès");
+      console.log("✅ Image de recette préparée avec succès");
     } else {
-      console.log("⚠️ Échec génération DALL·E 3:", dalleResult.error);
+      console.log("⚠️ Échec préparation image:", dalleResult.error);
     }
 
     // Ajouter l'image URL à la recette
@@ -309,13 +309,13 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
     };
 
     const endTime = Date.now();
-    console.log(`⚡ Génération complète terminée en ${endTime - startTime}ms`);
+    console.log(`⚡ Préparation complète terminée en ${endTime - startTime}ms`);
     console.log("🎯 Préférences appliquées:", preferences);
     console.log("🖼️ Image de recette finale:", finalImageUrl);
-    console.log("⚡ Génération complète terminée avec DALL·E 3");
+    console.log("⚡ Préparation complète terminée");
     
     if (regenerate) {
-      console.log("🔄 Régénération terminée avec succès");
+      console.log("🔄 Nouvelle recette préparée avec succès");
     }
     
     return res.json({ 
@@ -326,7 +326,7 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
     });
 
   } catch (error) {
-    console.error('❌ Erreur lors de la génération:', error);
+    console.error('❌ Erreur lors de la préparation:', error);
     res.status(500).json({ 
       error: 'Erreur interne du serveur',
       details: error.message 
@@ -347,10 +347,10 @@ async function handleGenerateImage(req, res) {
 
     if (!openaiApiKey) {
       console.error('❌ Clé API OpenAI manquante');
-      return res.status(503).json({ error: 'Service de génération d\'images indisponible' });
+      return res.status(503).json({ error: 'Service de préparation d\'images indisponible' });
     }
 
-    console.log("🎨 Génération d'image DALL·E 3 pour:", recipeTitle);
+    console.log("🎨 Préparation d'image pour:", recipeTitle);
     
     // Générer l'image avec DALL·E 3
     const dalleResult = await generateImageWithDalle({
@@ -362,23 +362,23 @@ async function handleGenerateImage(req, res) {
     });
     
     if (dalleResult.success) {
-      console.log("✅ Image DALL·E 3 générée avec succès");
+      console.log("✅ Image préparée avec succès");
       
       return res.json({ 
         success: true,
         imageUrl: dalleResult.imageUrl
       });
     } else {
-      console.log("❌ Échec génération DALL·E 3:", dalleResult.error);
+      console.log("❌ Échec préparation image:", dalleResult.error);
       
       return res.status(500).json({
         success: false,
-        error: dalleResult.error || 'Échec de la génération d\'image'
+        error: dalleResult.error || 'Échec de la préparation d\'image'
       });
     }
 
   } catch (error) {
-    console.error('❌ Erreur génération image:', error);
+    console.error('❌ Erreur préparation image:', error);
     res.status(500).json({ 
       success: false,
       error: 'Erreur interne du serveur',
@@ -394,10 +394,10 @@ app.post('/api/generate-image', handleGenerateImage);
 // Route de test pour vérifier que le serveur fonctionne
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'Serveur NutriScan API en fonctionnement avec DALL·E 3',
+    message: 'Serveur NutriScan API en fonctionnement',
     timestamp: new Date().toISOString(),
     endpoints: ['/api/generate-recipes', '/api/generate-image'],
-    features: ['GPT-4o recipe generation', 'DALL·E 3 image generation']
+    features: ['Préparation de recettes personnalisées', 'Préparation d\'images de recettes']
   });
 });
 
@@ -408,5 +408,5 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`🔑 Variables d'environnement chargées:`);
   console.log(`   - OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? 'Présente' : 'Manquante'}`);
   console.log(`   - OPENAI_ORG_ID: ${process.env.OPENAI_ORG_ID ? 'Présente' : 'Manquante'}`);
-  console.log(`🎨 DALL·E 3 activé pour la génération d'images`);
+  console.log(`🎨 Préparation d'images activée`);
 });
