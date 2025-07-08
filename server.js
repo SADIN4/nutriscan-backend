@@ -68,35 +68,12 @@ async function generateImageWithDalle({ recipeTitle, description, ingredients })
   } catch (error) {
     console.error('❌ Erreur génération DALL·E:', error);
     
-    // Fallback image
-    const fallbackUrl = getFallbackImage(recipeTitle);
     return {
-      imageUrl: fallbackUrl,
+      imageUrl: '',
       success: false,
       error: error.message
     };
   }
-}
-
-// Fonction fallback pour les images
-function getFallbackImage(recipeTitle) {
-  const title = recipeTitle.toLowerCase();
-  
-  const imageMap = {
-    pasta: 'https://images.pexels.com/photos/1527603/pexels-photo-1527603.jpeg?auto=compress&cs=tinysrgb&w=800',
-    salad: 'https://images.pexels.com/photos/1059905/pexels-photo-1059905.jpeg?auto=compress&cs=tinysrgb&w=800',
-    soup: 'https://images.pexels.com/photos/539451/pexels-photo-539451.jpeg?auto=compress&cs=tinysrgb&w=800',
-    chicken: 'https://images.pexels.com/photos/2338407/pexels-photo-2338407.jpeg?auto=compress&cs=tinysrgb&w=800',
-    pizza: 'https://images.pexels.com/photos/315755/pexels-photo-315755.jpeg?auto=compress&cs=tinysrgb&w=800',
-  };
-  
-  for (const [keyword, imageUrl] of Object.entries(imageMap)) {
-    if (title.includes(keyword)) {
-      return imageUrl;
-    }
-  }
-  
-  return 'https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?auto=compress&cs=tinysrgb&w=800';
 }
 
 // Handler de génération de recette
@@ -320,7 +297,7 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
     if (dalleResult.success) {
       console.log("✅ Image DALL·E 3 générée avec succès");
     } else {
-      console.log("⚠️ Utilisation de l'image de fallback:", dalleResult.error);
+      console.log("⚠️ Échec génération DALL·E 3:", dalleResult.error);
     }
 
     // Ajouter l'image URL à la recette
