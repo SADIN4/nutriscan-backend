@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
-const { Blob } = require('buffer'); // Import Blob for Node.js environment
+const Buffer = require('buffer').Buffer; // ✅ Pour créer un buffer binaire pour Supabase
 const cors = require('cors');
 
 const app = express();
@@ -40,18 +40,26 @@ async function storeImageInSupabase(recipeId, imageUrl) {
     }
     
     // Convert ArrayBuffer to Blob for Supabase upload
-    const arrayBuffer = await response.arrayBuffer();
-    const imageBlob = new Blob([arrayBuffer], { type: response.headers.get('content-type') || 'image/png' });
+    // Convertir en Buffer pour Supabase upload
+const arrayBuffer = await response.arrayBuffer();
 
-    console.log(`📦 Taille du Blob de l'image: ${imageBlob.size} octets`);
+if (arrayBuffer.byteLength === 0) {
+  throw new Error('Le contenu téléchargé depuis DALL·E est vide (0 octet).');
+}
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from(SUPABASE_BUCKET)
-      .upload(fileName, imageBlob, {
-        contentType: imageBlob.type,
-        upsert: true, // Replace if exists
-        cacheControl: '3600', // Cache for 1 hour
-      });
+const imageBuffer = Buffer.from(arrayBuffer);
+const contentType = response.headers.get('content-type') || 'image/png';
+
+console.log(`📦 Taille du Buffer de l'image: ${imageBuffer.length} octets`);
+
+const { data: uploadData, error: uploadError } = await supabase.storage
+  .from(SUPABASE_BUCKET)
+  .upload(fileName, imageBuffer, {
+    contentType,
+    upsert: true,
+    cacheControl: '3600',
+  });
+
 
     if (uploadError) {
       throw uploadError;
