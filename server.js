@@ -1,6 +1,8 @@
 require('dotenv').config();
 
 const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
+const { Blob } = require('buffer'); // Import Blob for Node.js environment
 const cors = require('cors');
 
 const app = express();
@@ -10,6 +12,70 @@ const port = 3000;
 app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+
+// Initialize Supabase client
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('❌ Supabase URL ou Anon Key manquante dans les variables d\'environnement.');
+  console.error('Veuillez définir EXPO_PUBLIC_SUPABASE_URL et EXPO_PUBLIC_SUPABASE_ANON_KEY.');
+  process.exit(1); // Exit if critical env vars are missing
+}
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const SUPABASE_BUCKET = 'recipe-images';
+
+// Helper function to store image in Supabase
+async function storeImageInSupabase(recipeId, imageUrl) {
+  const fileName = `recipe-${recipeId}.png`;
+
+  try {
+    console.log(`📤 Tentative de stockage de l'image DALL·E pour la recette ${recipeId} dans Supabase.`);
+    console.log(`🔗 URL DALL·E source: ${imageUrl}`);
+
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Échec du téléchargement de l'image depuis DALL·E: ${response.status} ${response.statusText}`);
+    }
+    
+    // Convert ArrayBuffer to Blob for Supabase upload
+    const arrayBuffer = await response.arrayBuffer();
+    const imageBlob = new Blob([arrayBuffer], { type: response.headers.get('content-type') || 'image/png' });
+
+    console.log(`📦 Taille du Blob de l'image: ${imageBlob.size} octets`);
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(SUPABASE_BUCKET)
+      .upload(fileName, imageBlob, {
+        contentType: imageBlob.type,
+        upsert: true, // Replace if exists
+        cacheControl: '3600', // Cache for 1 hour
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from(SUPABASE_BUCKET)
+      .getPublicUrl(fileName);
+
+    console.log(`✅ Image stockée de manière permanente dans Supabase: ${publicUrl}`);
+    return { supabaseUrl: publicUrl, success: true };
+
+  } catch (error) {
+    console.error(`❌ Erreur lors du stockage de l'image dans Supabase pour la recette ${recipeId}:`, error);
+    return { supabaseUrl: imageUrl, success: false, error: error.message }; // Fallback to original DALL·E URL
+  }
+}
+
+// Helper function to get public URL from Supabase (even if not yet uploaded)
+function getSupabasePublicUrl(recipeId) {
+  const fileName = `recipe-${recipeId}.png`;
+  const { data: { publicUrl } } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(fileName);
+  return publicUrl;
+}
 
 // Fonction de génération d'image DALL·E 3
 async function generateImageWithDalle({ recipeTitle, description, ingredients }) {
@@ -281,7 +347,7 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
     console.log("🔥 Calories de la recette:", parsedResponse.recipe.calories);
 
     // 🎨 IMAGE PREPARATION - Start immediately after recipe is ready
-    console.log("🎨 Préparation de l'image de la recette...");
+    console.log("🎨 Préparation de l'image de la recette avec DALL·E 3...");
     
     const recipeId = `recipe_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
@@ -292,10 +358,19 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
       ingredients: parsedResponse.identifiedIngredients
     });
     
-    const finalImageUrl = dalleResult.imageUrl;
+    let finalImageUrl = dalleResult.imageUrl;
     
     if (dalleResult.success) {
       console.log("✅ Image de recette préparée avec succès");
+      
+      // Store the image in Supabase and get permanent URL
+      const storageResult = await storeImageInSupabase(recipeId, dalleResult.imageUrl);
+      if (storageResult.success) {
+        finalImageUrl = storageResult.supabaseUrl;
+        console.log("✅ Image stockée définitivement dans Supabase:", finalImageUrl);
+      } else {
+        console.log("⚠️ Utilisation de l'URL DALL·E en fallback car le stockage Supabase a échoué:", storageResult.error);
+      }
     } else {
       console.log("⚠️ Échec préparation image:", dalleResult.error);
     }
@@ -305,7 +380,7 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
       ...parsedResponse.recipe,
       imageUrl: finalImageUrl,
       id: recipeId,
-      imageSource: dalleResult.success ? 'dalle' : 'failed'
+      imageSource: dalleResult.success ? (finalImageUrl.includes('supabase') ? 'supabase' : 'dalle') : 'failed'
     };
 
     const endTime = Date.now();
@@ -321,7 +396,7 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
     return res.json({ 
       recipe: finalRecipe,
       identifiedIngredients: parsedResponse.identifiedIngredients,
-      imageGenerationSuccess: dalleResult.success,
+      imageGenerationSuccess: dalleResult.success && finalImageUrl.includes('supabase'),
       generationTime: endTime - startTime
     });
 
@@ -337,10 +412,10 @@ Créez une recette ${regenerate ? 'innovante et surprenante' : 'unique, délicie
 // Handler pour la génération d'image seule
 async function handleGenerateImage(req, res) {
   try {
-    const { recipeTitle, description, ingredients } = req.body;
+    const { recipeTitle, description, ingredients, recipeId } = req.body;
     
-    if (!recipeTitle) {
-      return res.status(400).json({ error: 'Titre de recette requis' });
+    if (!recipeTitle || !recipeId) {
+      return res.status(400).json({ error: 'Titre de recette et ID requis' });
     }
 
     const openaiApiKey = process.env.OPENAI_API_KEY;
@@ -364,9 +439,14 @@ async function handleGenerateImage(req, res) {
     if (dalleResult.success) {
       console.log("✅ Image préparée avec succès");
       
+      // Store the image in Supabase and get permanent URL
+      const storageResult = await storeImageInSupabase(recipeId, dalleResult.imageUrl);
+      const finalImageUrl = storageResult.success ? storageResult.supabaseUrl : dalleResult.imageUrl;
+      
       return res.json({ 
         success: true,
-        imageUrl: dalleResult.imageUrl
+        imageUrl: finalImageUrl,
+        storedInSupabase: storageResult.success
       });
     } else {
       console.log("❌ Échec préparation image:", dalleResult.error);
@@ -406,6 +486,8 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Serveur API en écoute sur http://0.0.0.0:${port}`);
   console.log(`🌐 Accessible via: http://localhost:${port}`);
   console.log(`🔑 Variables d'environnement chargées:`);
+  console.log(`   - EXPO_PUBLIC_SUPABASE_URL: ${process.env.EXPO_PUBLIC_SUPABASE_URL ? 'Présente' : 'Manquante'}`);
+  console.log(`   - EXPO_PUBLIC_SUPABASE_ANON_KEY: ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ? 'Présente' : 'Manquante'}`);
   console.log(`   - OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? 'Présente' : 'Manquante'}`);
   console.log(`   - OPENAI_ORG_ID: ${process.env.OPENAI_ORG_ID ? 'Présente' : 'Manquante'}`);
   console.log(`🎨 Préparation d'images activée`);
