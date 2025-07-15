@@ -1,8 +1,8 @@
 require('dotenv').config();
 
 const express = require('express');
+const Buffer = require('buffer').Buffer;
 const { createClient } = require('@supabase/supabase-js');
-const Buffer = require('buffer').Buffer; // ✅ Pour créer un buffer binaire pour Supabase
 const cors = require('cors');
 
 const app = express();
@@ -34,34 +34,52 @@ async function storeImageInSupabase(recipeId, imageUrl) {
     console.log(`📤 Tentative de stockage de l'image DALL·E pour la recette ${recipeId} dans Supabase.`);
     console.log(`🔗 URL DALL·E source: ${imageUrl}`);
 
-    const response = await fetch(imageUrl);
+    // Enhanced fetch with User-Agent for better compatibility
+    const response = await fetch(imageUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'NutriScan-Backend/1.0 (Node.js)',
+      },
+    });
+    
     if (!response.ok) {
-      throw new Error(`Échec du téléchargement de l'image depuis DALL·E: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`Échec du téléchargement de l'image depuis DALL·E: ${response.status} ${response.statusText} - ${errorText}`);
     }
     
-    // Convert ArrayBuffer to Blob for Supabase upload
-    // Convertir en Buffer pour Supabase upload
-const arrayBuffer = await response.arrayBuffer();
+    // Debug: Log response headers
+    console.log(`DEBUG: DALL·E Response Headers - Content-Type: ${response.headers.get('content-type')}`);
+    console.log(`DEBUG: DALL·E Response Headers - Content-Length: ${response.headers.get('content-length')}`);
+    
+    const arrayBuffer = await response.arrayBuffer();
+    
+    // Critical validation: Check if downloaded content is empty
+    if (arrayBuffer.byteLength === 0) {
+      throw new Error('Le téléchargement de l\'image DALL·E a renvoyé un contenu vide (0 octet).');
+    }
+    
+    // Convert ArrayBuffer to Buffer (Node.js native binary data handling)
+    const imageBuffer = Buffer.from(arrayBuffer);
+    const contentType = response.headers.get('content-type') || 'image/png';
 
-if (arrayBuffer.byteLength === 0) {
-  throw new Error('Le contenu téléchargé depuis DALL·E est vide (0 octet).');
-}
+    console.log(`📦 Taille du Buffer de l'image: ${imageBuffer.length} octets`);
+    
+    // Debug: Log buffer content preview (first 64 bytes in hex)
+    console.log(`DEBUG: Début de imageBuffer (hex): ${imageBuffer.toString('hex', 0, Math.min(imageBuffer.length, 64))}`);
+    
+    // Debug: Final check before upload
+    console.log(`DEBUG: Taille de imageBuffer avant upload: ${imageBuffer.length} octets`);
 
-const imageBuffer = Buffer.from(arrayBuffer);
-const contentType = response.headers.get('content-type') || 'image/png';
-
-console.log(`📦 Taille du Buffer de l'image: ${imageBuffer.length} octets`);
-
-const { data: uploadData, error: uploadError } = await supabase.storage
-  .from(SUPABASE_BUCKET)
-  .upload(fileName, imageBuffer, {
-    contentType,
-    upsert: true,
-    cacheControl: '3600',
-  });
-
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(SUPABASE_BUCKET)
+      .upload(fileName, imageBuffer, {
+        contentType: contentType,
+        upsert: true, // Replace if exists
+        cacheControl: '3600', // Cache for 1 hour
+      });
 
     if (uploadError) {
+      console.error('❌ Erreur upload Supabase:', uploadError);
       throw uploadError;
     }
 
@@ -71,6 +89,18 @@ const { data: uploadData, error: uploadError } = await supabase.storage
 
     console.log(`✅ Image stockée de manière permanente dans Supabase: ${publicUrl}`);
     return { supabaseUrl: publicUrl, success: true };
+    // Optional: Verify the uploaded image is accessible
+    try {
+      const verifyResponse = await fetch(publicUrl, { method: 'HEAD' });
+      if (!verifyResponse.ok || parseInt(verifyResponse.headers.get('content-length') || '0') === 0) {
+        console.warn(`⚠️ Vérification de l'image échouée ou taille 0 après upload: ${publicUrl}`);
+      } else {
+        console.log('✅ Vérification de l\'image post-upload réussie.');
+      }
+    } catch (verifyError) {
+      console.warn(`⚠️ Erreur lors de la vérification de l'image post-upload: ${verifyError.message}`);
+    }
+    
 
   } catch (error) {
     console.error(`❌ Erreur lors du stockage de l'image dans Supabase pour la recette ${recipeId}:`, error);
