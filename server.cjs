@@ -605,14 +605,5 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`   - TWILIO_AUTH_TOKEN: ${process.env.TWILIO_AUTH_TOKEN ? 'Présente' : 'Manquante'}`);
   console.log(`   - TWILIO_PHONE_NUMBER: ${process.env.TWILIO_PHONE_NUMBER ? 'Présente' : 'Manquante'}`);
   console.log(`🎨 Préparation d'images activée`);
-<<<<<<< HEAD
-  console.log(`📱 SMS ${twilioClient ? 'activé' : 'désactivé'}`);
+   console.log(`📱 SMS ${twilioClient ? 'activé' : 'désactivé'}`);
 });
-=======
-<<<<<<< HEAD:server.js
-});
-=======
-  console.log(`📱 SMS ${twilioClient ? 'activé' : 'désactivé'}`);
-});
->>>>>>> aaed7d3 (changement):server.cjs
->>>>>>> ccc9073 (correction)
