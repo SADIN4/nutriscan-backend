@@ -1,8 +1,8 @@
 require('dotenv').config();
 
 const express = require('express');
+const Buffer = require('buffer').Buffer;
 const { createClient } = require('@supabase/supabase-js');
-const Buffer = require('buffer').Buffer; // ✅ Pour créer un buffer binaire pour Supabase
 const cors = require('cors');
 
 const app = express();
@@ -26,6 +26,25 @@ if (!supabaseUrl || !supabaseAnonKey) {
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 const SUPABASE_BUCKET = 'recipe-images';
 
+// Initialize Twilio client
+const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
+const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
+const twilioServiceSid = process.env.TWILIO_SERVICE_SID;
+
+let twilioClient = null;
+if (twilioAccountSid && twilioAuthToken) {
+  try {
+    const twilio = require('twilio');
+    twilioClient = twilio(twilioAccountSid, twilioAuthToken);
+    console.log('✅ Twilio client initialized successfully');
+  } catch (error) {
+    console.error('❌ Failed to initialize Twilio client:', error);
+  }
+} else {
+  console.warn('⚠️ Twilio credentials not found - SMS functionality will be disabled');
+}
+
 // Helper function to store image in Supabase
 async function storeImageInSupabase(recipeId, imageUrl) {
   const fileName = `recipe-${recipeId}.png`;
@@ -34,34 +53,52 @@ async function storeImageInSupabase(recipeId, imageUrl) {
     console.log(`📤 Tentative de stockage de l'image DALL·E pour la recette ${recipeId} dans Supabase.`);
     console.log(`🔗 URL DALL·E source: ${imageUrl}`);
 
-    const response = await fetch(imageUrl);
+    // Enhanced fetch with User-Agent for better compatibility
+    const response = await fetch(imageUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'NutriScan-Backend/1.0 (Node.js)',
+      },
+    });
+    
     if (!response.ok) {
-      throw new Error(`Échec du téléchargement de l'image depuis DALL·E: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`Échec du téléchargement de l'image depuis DALL·E: ${response.status} ${response.statusText} - ${errorText}`);
     }
     
-    // Convert ArrayBuffer to Blob for Supabase upload
-    // Convertir en Buffer pour Supabase upload
-const arrayBuffer = await response.arrayBuffer();
+    // Debug: Log response headers
+    console.log(`DEBUG: DALL·E Response Headers - Content-Type: ${response.headers.get('content-type')}`);
+    console.log(`DEBUG: DALL·E Response Headers - Content-Length: ${response.headers.get('content-length')}`);
+    
+    const arrayBuffer = await response.arrayBuffer();
+    
+    // Critical validation: Check if downloaded content is empty
+    if (arrayBuffer.byteLength === 0) {
+      throw new Error('Le téléchargement de l\'image DALL·E a renvoyé un contenu vide (0 octet).');
+    }
+    
+    // Convert ArrayBuffer to Buffer (Node.js native binary data handling)
+    const imageBuffer = Buffer.from(arrayBuffer);
+    const contentType = response.headers.get('content-type') || 'image/png';
 
-if (arrayBuffer.byteLength === 0) {
-  throw new Error('Le contenu téléchargé depuis DALL·E est vide (0 octet).');
-}
+    console.log(`📦 Taille du Buffer de l'image: ${imageBuffer.length} octets`);
+    
+    // Debug: Log buffer content preview (first 64 bytes in hex)
+    console.log(`DEBUG: Début de imageBuffer (hex): ${imageBuffer.toString('hex', 0, Math.min(imageBuffer.length, 64))}`);
+    
+    // Debug: Final check before upload
+    console.log(`DEBUG: Taille de imageBuffer avant upload: ${imageBuffer.length} octets`);
 
-const imageBuffer = Buffer.from(arrayBuffer);
-const contentType = response.headers.get('content-type') || 'image/png';
-
-console.log(`📦 Taille du Buffer de l'image: ${imageBuffer.length} octets`);
-
-const { data: uploadData, error: uploadError } = await supabase.storage
-  .from(SUPABASE_BUCKET)
-  .upload(fileName, imageBuffer, {
-    contentType,
-    upsert: true,
-    cacheControl: '3600',
-  });
-
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(SUPABASE_BUCKET)
+      .upload(fileName, imageBuffer, {
+        contentType: contentType,
+        upsert: true, // Replace if exists
+        cacheControl: '3600', // Cache for 1 hour
+      });
 
     if (uploadError) {
+      console.error('❌ Erreur upload Supabase:', uploadError);
       throw uploadError;
     }
 
@@ -71,6 +108,18 @@ const { data: uploadData, error: uploadError } = await supabase.storage
 
     console.log(`✅ Image stockée de manière permanente dans Supabase: ${publicUrl}`);
     return { supabaseUrl: publicUrl, success: true };
+    // Optional: Verify the uploaded image is accessible
+    try {
+      const verifyResponse = await fetch(publicUrl, { method: 'HEAD' });
+      if (!verifyResponse.ok || parseInt(verifyResponse.headers.get('content-length') || '0') === 0) {
+        console.warn(`⚠️ Vérification de l'image échouée ou taille 0 après upload: ${publicUrl}`);
+      } else {
+        console.log('✅ Vérification de l\'image post-upload réussie.');
+      }
+    } catch (verifyError) {
+      console.warn(`⚠️ Erreur lors de la vérification de l'image post-upload: ${verifyError.message}`);
+    }
+    
 
   } catch (error) {
     console.error(`❌ Erreur lors du stockage de l'image dans Supabase pour la recette ${recipeId}:`, error);
@@ -479,6 +528,60 @@ async function handleGenerateImage(req, res) {
 app.post('/api/generate-recipes', handleGenerateRecipes);
 app.post('/api/generate-image', handleGenerateImage);
 
+// Route pour envoyer un SMS de vérification
+app.post('/api/send-verification-sms', async (req, res) => {
+  try {
+    const { phoneNumber, verificationCode } = req.body;
+
+    if (!phoneNumber || !verificationCode) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Numéro de téléphone et code de vérification requis' 
+      });
+    }
+
+    if (!twilioClient) {
+      console.error('❌ Twilio client not initialized');
+      return res.status(503).json({ 
+        success: false, 
+        error: 'Service SMS temporairement indisponible' 
+      });
+    }
+
+    console.log(`📱 Envoi du SMS de vérification au ${phoneNumber}`);
+
+    const message = await twilioClient.messages.create({
+      body: `Votre code de vérification NutriScan est : ${verificationCode}. Ce code expire dans 10 minutes.`,
+      from: twilioPhoneNumber,
+      to: phoneNumber
+    });
+
+    console.log('✅ SMS envoyé avec succès:', message.sid);
+
+    res.json({ 
+      success: true, 
+      messageSid: message.sid 
+    });
+
+  } catch (error) {
+    console.error('❌ Erreur envoi SMS:', error);
+    
+    let errorMessage = 'Erreur lors de l\'envoi du SMS';
+    if (error.code === 21211) {
+      errorMessage = 'Numéro de téléphone invalide';
+    } else if (error.code === 21614) {
+      errorMessage = 'Numéro de téléphone non valide pour ce pays';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    res.status(500).json({ 
+      success: false, 
+      error: errorMessage 
+    });
+  }
+});
+
 // Route de test pour vérifier que le serveur fonctionne
 app.get('/', (req, res) => {
   res.json({ 
@@ -498,5 +601,9 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`   - EXPO_PUBLIC_SUPABASE_ANON_KEY: ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ? 'Présente' : 'Manquante'}`);
   console.log(`   - OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? 'Présente' : 'Manquante'}`);
   console.log(`   - OPENAI_ORG_ID: ${process.env.OPENAI_ORG_ID ? 'Présente' : 'Manquante'}`);
+  console.log(`   - TWILIO_ACCOUNT_SID: ${process.env.TWILIO_ACCOUNT_SID ? 'Présente' : 'Manquante'}`);
+  console.log(`   - TWILIO_AUTH_TOKEN: ${process.env.TWILIO_AUTH_TOKEN ? 'Présente' : 'Manquante'}`);
+  console.log(`   - TWILIO_PHONE_NUMBER: ${process.env.TWILIO_PHONE_NUMBER ? 'Présente' : 'Manquante'}`);
   console.log(`🎨 Préparation d'images activée`);
+  console.log(`📱 SMS ${twilioClient ? 'activé' : 'désactivé'}`);
 });
