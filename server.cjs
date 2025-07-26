@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
+const path = require('path');
 const Buffer = require('buffer').Buffer;
 const { createClient } = require('@supabase/supabase-js');
 const cors = require('cors');
@@ -12,6 +13,7 @@ const port = 3000;
 app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Initialize Supabase client
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -590,6 +592,11 @@ app.get('/', (req, res) => {
     endpoints: ['/api/generate-recipes', '/api/generate-image'],
     features: ['Préparation de recettes personnalisées', 'Préparation d\'images de recettes']
   });
+});
+
+// Route pour la confirmation d'email Supabase
+app.get('/auth/callback', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'confirmed.html'));
 });
 
 // Démarrage du serveur
