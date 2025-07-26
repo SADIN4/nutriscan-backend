@@ -201,15 +201,6 @@
             </p>
         </div>
         
-        <div class="actions">
-            <a href="#" class="btn btn-primary" onclick="openApp()">
-                📱 Ouvrir l'App
-            </a>
-            <a href="mailto:support@nutriscan.app" class="btn btn-secondary">
-                💬 Support
-            </a>
-        </div>
-        
         <div class="footer">
             <p>Merci de faire confiance à NutriScan pour vos découvertes culinaires !</p>
             <p style="margin-top: 10px;">
@@ -219,27 +210,6 @@
     </div>
 
     <script>
-        function openApp() {
-            // Essayer d'ouvrir l'app mobile si disponible
-            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-            
-            if (/android/i.test(userAgent)) {
-                // Android - essayer d'ouvrir l'app ou rediriger vers Play Store
-                window.location.href = 'intent://nutriscan#Intent;scheme=nutriscan;package=com.nutriscan.app;end';
-                setTimeout(() => {
-                    window.location.href = 'https://play.google.com/store/apps/details?id=com.nutriscan.app';
-                }, 2000);
-            } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
-                // iOS - essayer d'ouvrir l'app ou rediriger vers App Store
-                window.location.href = 'nutriscan://';
-                setTimeout(() => {
-                    window.location.href = 'https://apps.apple.com/app/nutriscan/id123456789';
-                }, 2000);
-            } else {
-                // Desktop ou autre - afficher un message
-                alert('L\'application NutriScan est disponible sur mobile. Téléchargez-la depuis l\'App Store ou Google Play Store !');
-            }
-        }
 
         // Animation d'entrée
         document.addEventListener('DOMContentLoaded', function() {
