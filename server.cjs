@@ -594,16 +594,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// Route pour la confirmation d'email Supabase
-app.get('/auth/callback', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'confirmed.html'));
-});
-
-// Route pour la réinitialisation de mot de passe Supabase
-app.get('/reset-password', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'reset-password.html'));
-});
-
 // Démarrage du serveur
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Serveur API en écoute sur http://0.0.0.0:${port}`);
